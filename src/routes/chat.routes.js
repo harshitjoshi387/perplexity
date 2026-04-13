@@ -1,31 +1,24 @@
 import { Router } from "express";
 import ChatModel from "../model/chat.model.js";
 import MessageModel from "../model/message.model.js";
-import UserModel from "../model/user.model.js";
+import authMiddleware from "../middleware/auth.middleware.js";
 
 const router = Router();
 
+router.use(authMiddleware);
+
 router.post("/", async (req, res) => {
   try {
-    const { user, title } = req.body;
+    const { title } = req.body;
 
-    if (!user || !title) {
+    if (!title) {
       return res.status(400).json({
         success: false,
-        message: "user and title are required",
+        message: "title is required",
       });
     }
 
-    const existingUser = await UserModel.findById(user);
-
-    if (!existingUser) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found",
-      });
-    }
-
-    const chat = await ChatModel.create({ user, title });
+    const chat = await ChatModel.create({ user: req.user._id, title });
 
     return res.status(201).json({
       success: true,
@@ -41,13 +34,7 @@ router.post("/", async (req, res) => {
 
 router.get("/", async (req, res) => {
   try {
-    const filter = {};
-
-    if (req.query.user) {
-      filter.user = req.query.user;
-    }
-
-    const chats = await ChatModel.find(filter)
+    const chats = await ChatModel.find({ user: req.user._id })
       .populate("user", "username email verified")
       .sort({ updatedAt: -1 });
 
@@ -65,10 +52,10 @@ router.get("/", async (req, res) => {
 
 router.get("/:chatId", async (req, res) => {
   try {
-    const chat = await ChatModel.findById(req.params.chatId).populate(
-      "user",
-      "username email verified"
-    );
+    const chat = await ChatModel.findOne({
+      _id: req.params.chatId,
+      user: req.user._id,
+    }).populate("user", "username email verified");
 
     if (!chat) {
       return res.status(404).json({
@@ -107,8 +94,8 @@ router.patch("/:chatId", async (req, res) => {
       });
     }
 
-    const chat = await ChatModel.findByIdAndUpdate(
-      req.params.chatId,
+    const chat = await ChatModel.findOneAndUpdate(
+      { _id: req.params.chatId, user: req.user._id },
       { title },
       { new: true, runValidators: true }
     );
@@ -134,7 +121,10 @@ router.patch("/:chatId", async (req, res) => {
 
 router.delete("/:chatId", async (req, res) => {
   try {
-    const chat = await ChatModel.findByIdAndDelete(req.params.chatId);
+    const chat = await ChatModel.findOneAndDelete({
+      _id: req.params.chatId,
+      user: req.user._id,
+    });
 
     if (!chat) {
       return res.status(404).json({

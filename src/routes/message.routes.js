@@ -1,8 +1,11 @@
 import { Router } from "express";
+import authMiddleware from "../middleware/auth.middleware.js";
 import ChatModel from "../model/chat.model.js";
 import MessageModel from "../model/message.model.js";
 
 const router = Router();
+
+router.use(authMiddleware);
 
 router.post("/", async (req, res) => {
   try {
@@ -15,7 +18,10 @@ router.post("/", async (req, res) => {
       });
     }
 
-    const existingChat = await ChatModel.findById(chat);
+    const existingChat = await ChatModel.findOne({
+      _id: chat,
+      user: req.user._id,
+    });
 
     if (!existingChat) {
       return res.status(404).json({
@@ -47,9 +53,23 @@ router.post("/", async (req, res) => {
 
 router.get("/", async (req, res) => {
   try {
-    const filter = {};
+    const userChats = await ChatModel.find({ user: req.user._id }).select("_id");
+    const chatIds = userChats.map((item) => item._id);
+    const filter = { chat: { $in: chatIds } };
 
     if (req.query.chat) {
+      const requestedChatId = String(req.query.chat);
+      const isOwnedChat = chatIds.some(
+        (chatId) => String(chatId) === requestedChatId
+      );
+
+      if (!isOwnedChat) {
+        return res.status(403).json({
+          success: false,
+          message: "You are not allowed to access messages from this chat",
+        });
+      }
+
       filter.chat = req.query.chat;
     }
 
@@ -80,6 +100,13 @@ router.get("/:messageId", async (req, res) => {
       return res.status(404).json({
         success: false,
         message: "Message not found",
+      });
+    }
+
+    if (String(message.chat.user) !== String(req.user._id)) {
+      return res.status(403).json({
+        success: false,
+        message: "You are not allowed to access this message",
       });
     }
 
